@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel Reader</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <span class="logo-icon">📊</span>
+                <span>Excel Reader</span>
+            </div>
+            
+            <nav class="nav">
+                <button class="nav-btn active" data-view="upload">
+                    <span>➕</span> Import Data
+                </button>
+                <button class="nav-btn" data-view="files">
+                    <span>📁</span> Data Tersimpan
+                </button>
+                <button class="nav-btn" data-view="groups">
+                    <span>📂</span> Kelola Group
+                </button>
+            </nav>
+            
+            <div class="sidebar-footer"></div>
+                <small>v1.0 • Dark Mode</small>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main">
+            <div id="alert" class="alert"></div>
+            
+            <!-- Upload View -->
+            <div class="view active" id="uploadView">
+                <h1>Import Data</h1>
+                
+                <div class="tabs">
+                    <button class="tab active" data-tab="file">📤 Upload File</button>
+                    <button class="tab" data-tab="link">🔗 Google Sheet Link</button>
+                </div>
+                
+                <!-- File Upload Tab -->
+                <div class="tab-content active" id="fileTab">
+                    <div class="card">
+                        <div class="upload-area" id="uploadArea">
+                            <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
+                            <div class="upload-icon">📤</div>
+                            <div class="upload-text">Drag & drop atau klik untuk upload</div>
+                            <div class="upload-hint">.xlsx, .xls, .csv (Max 16MB)</div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Simpan ke Group (opsional)</label>
+                            <select id="uploadGroupSelect" class="input">
+                                <option value="">-- Tanpa Group --</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Link Tab -->
+                <div class="tab-content" id="linkTab">
+                    <div class="card">
+                        <div class="form-group">
+                            <label>Google Spreadsheet URL</label>
+                            <input type="url" id="sheetUrl" class="input" 
+                                placeholder="https://docs.google.com/spreadsheets/d/...">
+                            <small class="hint">Pastikan spreadsheet di-share sebagai "Anyone with link can view"</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Nama (opsional)</label>
+                            <input type="text" id="sheetName" class="input" placeholder="Nama untuk data ini">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Simpan ke Group (opsional)</label>
+                            <select id="linkGroupSelect" class="input">
+                                <option value="">-- Tanpa Group --</option>
+                            </select>
+                        </div>
+                        
+                        <button class="btn btn-primary" id="importLinkBtn">
+                            <span>🔗</span> Import dari Link
+                        </button>
+                    </div>
+                </div>
+            </div>
+""
+
+            <!-- Files View -->
+            <div class="view" id="filesView">
+                <div class="view-header">
+                    <h1>Data Tersimpan</h1>
+                    <button class="btn btn-sm" id="refreshFilesBtn">🔄 Refresh</button>
+                </div>
+                
+                <div class="filter-bar">
+                    <select id="filterGroup" class="input input-sm">
+                        <option value="">Semua Group</option>
+                    </select>
+                </div>
+                
+                <div class="file-list" id="fileList">
+                    <div class="empty-state">
+                        <span>📭</span>
+                        <p>Belum ada data tersimpan</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Groups View -->
+            <div class="view" id="groupsView">
+                <h1>Kelola Group</h1>
+                
+                <div class="card">
+                    <div class="form-row">
+                        <input type="text" id="newGroupName" class="input" placeholder="Nama group baru">
+                        <button class="btn btn-primary" id="createGroupBtn">+ Buat Group</button>
+                    </div>
+                </div>
+                
+                <div class="group-list" id="groupList"></div>
+            </div>
+            
+            <!-- Data Preview Modal -->
+            <div class="modal" id="previewModal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 id="previewTitle">Preview Data</h2>
+                        <button class="modal-close" id="closeModal">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="data-summary" id="dataSummary"></div>
+                        <div class="table-wrapper">
+                            <table class="data-table">
+                                <thead id="tableHead"></thead>
+                                <tbody id="tableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loading">
+        <div class="spinner"></div>
+        <p>Memproses...</p>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

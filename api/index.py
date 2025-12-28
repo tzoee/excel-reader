@@ -1,0 +1,262 @@
+"""
+Flask API untuk Vercel Serverless
+"""
+import os
+import json
+import uuid
+import requests
+import pandas as pd
+from io import BytesIO
+from flask import Flask, render_template, request, jsonify
+from werkzeug.utils import secure_filename
+from datetime import datetime
+
+app = Flask(__name__, template_folder='../templates', static_folder='../static')
+app.secret_key = os.environ.get('SECRET_KEY', 'excel-reader-2024')
+
+# Gunakan /tmp untuk Vercel serverless
+UPLOAD_FOLDER = '/tmp/uploads'
+DATA_FILE = '/tmp/data_store.json'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+ALLOWED_EXTENSIONS = {'xlsx', 'xls', 'csv'}
+
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def load_data_store():
+    """Load data store dari file JSON"""
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, 'r') as f:
+            return json.load(f)
+    return {'files': [], 'groups': []}
+
+
+def save_data_store(data):
+    """Simpan data store ke file JSON"""
+    with open(DATA_FILE, 'w') as f:
+        json.dump(data, f)
+
+
+def read_google_sheet(url):
+    """Baca Google Spreadsheet dari link share"""
+    # Convert share link ke export CSV
+    if '/edit' in url:
+        url = url.split('/edit')[0]
+    if '/view' in url:
+        url = url.split('/view')[0]
+    
+    # Extract sheet ID
+    if '/d/' in url:
+        sheet_id = url.split('/d/')[1].split('/')[0]
+    else:
+        raise ValueError('URL Google Spreadsheet tidak valid')
+    
+    # Cek apakah ada gid (sheet tertentu)
+    gid = '0'
+    if 'gid=' in url:
+        gid = url.split('gid=')[1].split('&')[0]
+    
+    export_url = f'https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}'
+    
+    response = requests.get(export_url)
+    if response.status_code != 200:
+        raise ValueError('Gagal mengakses spreadsheet. Pastikan link bisa diakses publik.')
+    
+    df = pd.read_csv(BytesIO(response.content))
+    return df, sheet_id
+
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+
+@app.route('/api/upload', methods=['POST'])
+def upload_file():
+    if 'file' not in request.files:
+        return jsonify({'error': 'Tidak ada file yang dipilih'}), 400
+    
+    file = request.files['file']
+    group_id = request.form.get('group_id', '')
+    
+    if file.filename == '':
+        return jsonify({'error': 'Tidak ada file yang dipilih'}), 400
+    
+    if not allowed_file(file.filename):
+        return jsonify({'error': 'Format tidak didukung. Gunakan: xlsx, xls, csv'}), 400
+    
+    try:
+        filename = secure_filename(file.filename)
+        file_id = uuid.uuid4().hex[:8]
+        
+        # Baca file langsung ke DataFrame
+        suffix = filename.rsplit('.', 1)[1].lower()
+        if suffix == 'csv':
+            df = pd.read_csv(file)
+        else:
+            df = pd.read_excel(file)
+        
+        # Simpan data ke store
+        store = load_data_store()
+        file_data = {
+            'id': file_id,
+            'name': filename,
+            'source': 'upload',
+            'group_id': group_id,
+            'created_at': datetime.now().isoformat(),
+            'rows': len(df),
+            'columns': list(df.columns),
+            'data': df.head(500).to_dict('records')  # Simpan max 500 baris
+        }
+        store['files'].append(file_data)
+        save_data_store(store)
+        
+        return jsonify({
+            'success': True,
+            'file': {
+                'id': file_id,
+                'name': filename,
+                'rows': len(df),
+                'columns': list(df.columns)
+            }
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/import-link', methods=['POST'])
+def import_from_link():
+    """Import dari Google Spreadsheet link"""
+    data = request.json
+    url = data.get('url', '')
+    group_id = data.get('group_id', '')
+    custom_name = data.get('name', '')
+    
+    if not url:
+        return jsonify({'error': 'URL tidak boleh kosong'}), 400
+    
+    try:
+        df, sheet_id = read_google_sheet(url)
+        file_id = uuid.uuid4().hex[:8]
+        filename = custom_name or f'GSheet_{sheet_id[:8]}'
+        
+        store = load_data_store()
+        file_data = {
+            'id': file_id,
+            'name': filename,
+            'source': 'google_sheet',
+            'source_url': url,
+            'group_id': group_id,
+            'created_at': datetime.now().isoformat(),
+            'rows': len(df),
+            'columns': list(df.columns),
+            'data': df.head(500).to_dict('records')
+        }
+        store['files'].append(file_data)
+        save_data_store(store)
+        
+        return jsonify({
+            'success': True,
+            'file': {
+                'id': file_id,
+                'name': filename,
+                'rows': len(df),
+                'columns': list(df.columns)
+            }
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/files', methods=['GET'])
+def get_files():
+    """Dapatkan semua file tersimpan"""
+    store = load_data_store()
+    files = [{
+        'id': f['id'],
+        'name': f['name'],
+        'source': f['source'],
+        'group_id': f.get('group_id', ''),
+        'created_at': f['created_at'],
+        'rows': f['rows'],
+        'columns': f['columns']
+    } for f in store['files']]
+    return jsonify({'files': files, 'groups': store['groups']})
+
+
+@app.route('/api/files/<file_id>', methods=['GET'])
+def get_file_data(file_id):
+    """Dapatkan data file tertentu"""
+    store = load_data_store()
+    file_data = next((f for f in store['files'] if f['id'] == file_id), None)
+    
+    if not file_data:
+        return jsonify({'error': 'File tidak ditemukan'}), 404
+    
+    return jsonify({
+        'success': True,
+        'file': file_data
+    })
+
+
+@app.route('/api/files/<file_id>', methods=['DELETE'])
+def delete_file(file_id):
+    """Hapus file"""
+    store = load_data_store()
+    store['files'] = [f for f in store['files'] if f['id'] != file_id]
+    save_data_store(store)
+    return jsonify({'success': True})
+
+
+@app.route('/api/groups', methods=['POST'])
+def create_group():
+    """Buat group baru"""
+    data = request.json
+    name = data.get('name', '').strip()
+    
+    if not name:
+        return jsonify({'error': 'Nama group tidak boleh kosong'}), 400
+    
+    store = load_data_store()
+    group_id = uuid.uuid4().hex[:8]
+    store['groups'].append({
+        'id': group_id,
+        'name': name,
+        'created_at': datetime.now().isoformat()
+    })
+    save_data_store(store)
+    
+    return jsonify({'success': True, 'group': {'id': group_id, 'name': name}})
+
+
+@app.route('/api/groups/<group_id>', methods=['DELETE'])
+def delete_group(group_id):
+    """Hapus group beserta semua file di dalamnya"""
+    store = load_data_store()
+    store['groups'] = [g for g in store['groups'] if g['id'] != group_id]
+    store['files'] = [f for f in store['files'] if f.get('group_id') != group_id]
+    save_data_store(store)
+    return jsonify({'success': True})
+
+
+@app.route('/api/files/<file_id>/move', methods=['POST'])
+def move_file_to_group(file_id):
+    """Pindahkan file ke group lain"""
+    data = request.json
+    group_id = data.get('group_id', '')
+    
+    store = load_data_store()
+    for f in store['files']:
+        if f['id'] == file_id:
+            f['group_id'] = group_id
+            break
+    save_data_store(store)
+    return jsonify({'success': True})
+
+
+# Untuk development lokal
+if __name__ == '__main__':
+    app.run(debug=True, port=5000)
