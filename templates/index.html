@@ -4,158 +4,111 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Excel Reader</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <div class="app">
-        <!-- Sidebar -->
         <aside class="sidebar">
-            <div class="logo">
-                <span class="logo-icon">📊</span>
-                <span>Excel Reader</span>
-            </div>
-            
+            <div class="logo">📊 Excel Reader</div>
             <nav class="nav">
-                <button class="nav-btn active" data-view="upload">
-                    <span>➕</span> Import Data
-                </button>
-                <button class="nav-btn" data-view="files">
-                    <span>📁</span> Data Tersimpan
-                </button>
-                <button class="nav-btn" data-view="groups">
-                    <span>📂</span> Kelola Group
-                </button>
+                <button class="nav-btn active" data-view="upload">➕ Import Data</button>
+                <button class="nav-btn" data-view="files">📁 Data Tersimpan</button>
+                <button class="nav-btn" data-view="groups">📂 Kelola Group</button>
             </nav>
-            
-            <div class="sidebar-footer"></div>
-                <small>v1.0 • Dark Mode</small>
-            </div>
         </aside>
 
-        <!-- Main Content -->
         <main class="main">
             <div id="alert" class="alert"></div>
-            
-            <!-- Upload View -->
-            <div class="view active" id="uploadView">
+
+            <!-- Import View -->
+            <section class="view active" id="uploadView">
                 <h1>Import Data</h1>
                 
-                <div class="tabs">
+                <div class="import-tabs">
                     <button class="tab active" data-tab="file">📤 Upload File</button>
-                    <button class="tab" data-tab="link">🔗 Google Sheet Link</button>
+                    <button class="tab" data-tab="link">🔗 Google Sheet</button>
                 </div>
-                
-                <!-- File Upload Tab -->
-                <div class="tab-content active" id="fileTab">
-                    <div class="card">
-                        <div class="upload-area" id="uploadArea">
-                            <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
-                            <div class="upload-icon">📤</div>
-                            <div class="upload-text">Drag & drop atau klik untuk upload</div>
-                            <div class="upload-hint">.xlsx, .xls, .csv (Max 16MB)</div>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label>Simpan ke Group (opsional)</label>
-                            <select id="uploadGroupSelect" class="input">
-                                <option value="">-- Tanpa Group --</option>
-                            </select>
-                        </div>
+
+                <!-- Upload Tab -->
+                <div class="tab-panel active" id="fileTab">
+                    <div class="upload-box" id="uploadArea">
+                        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" hidden>
+                        <div class="upload-icon">📄</div>
+                        <p>Drag & drop file atau <span class="link">pilih file</span></p>
+                        <small>xlsx, xls, csv • Max 16MB</small>
+                    </div>
+                    <div class="form-field">
+                        <label>Group (opsional)</label>
+                        <select id="uploadGroupSelect" class="select"></select>
                     </div>
                 </div>
-                
+
                 <!-- Link Tab -->
-                <div class="tab-content" id="linkTab">
-                    <div class="card">
-                        <div class="form-group">
-                            <label>Google Spreadsheet URL</label>
-                            <input type="url" id="sheetUrl" class="input" 
-                                placeholder="https://docs.google.com/spreadsheets/d/...">
-                            <small class="hint">Pastikan spreadsheet di-share sebagai "Anyone with link can view"</small>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label>Nama (opsional)</label>
-                            <input type="text" id="sheetName" class="input" placeholder="Nama untuk data ini">
-                        </div>
-                        
-                        <div class="form-group">
-                            <label>Simpan ke Group (opsional)</label>
-                            <select id="linkGroupSelect" class="input">
-                                <option value="">-- Tanpa Group --</option>
-                            </select>
-                        </div>
-                        
-                        <button class="btn btn-primary" id="importLinkBtn">
-                            <span>🔗</span> Import dari Link
-                        </button>
+                <div class="tab-panel" id="linkTab">
+                    <div class="link-input-wrapper">
+                        <input type="url" id="sheetUrl" class="input-large" 
+                            placeholder="Paste link Google Spreadsheet di sini...">
+                        <div class="link-status" id="linkStatus"></div>
                     </div>
+                    <small class="hint">Paste link → otomatis terbaca. Pastikan share "Anyone with link"</small>
+                    
+                    <div class="form-row">
+                        <div class="form-field">
+                            <label>Nama (opsional)</label>
+                            <input type="text" id="sheetName" class="input" placeholder="Nama data">
+                        </div>
+                        <div class="form-field">
+                            <label>Group (opsional)</label>
+                            <select id="linkGroupSelect" class="select"></select>
+                        </div>
+                    </div>
+                    <button class="btn-primary" id="saveLinkBtn" disabled>💾 Simpan Data</button>
                 </div>
-            </div>
-""
+            </section>
+</div>""
 
             <!-- Files View -->
-            <div class="view" id="filesView">
+            <section class="view" id="filesView">
                 <div class="view-header">
                     <h1>Data Tersimpan</h1>
-                    <button class="btn btn-sm" id="refreshFilesBtn">🔄 Refresh</button>
-                </div>
-                
-                <div class="filter-bar">
-                    <select id="filterGroup" class="input input-sm">
-                        <option value="">Semua Group</option>
+                    <select id="filterGroup" class="select select-sm">
+                        <option value="">Semua</option>
                     </select>
                 </div>
-                
-                <div class="file-list" id="fileList">
-                    <div class="empty-state">
-                        <span>📭</span>
-                        <p>Belum ada data tersimpan</p>
-                    </div>
-                </div>
-            </div>
-            
+                <div class="file-grid" id="fileList"></div>
+            </section>
+
             <!-- Groups View -->
-            <div class="view" id="groupsView">
+            <section class="view" id="groupsView">
                 <h1>Kelola Group</h1>
-                
-                <div class="card">
-                    <div class="form-row">
-                        <input type="text" id="newGroupName" class="input" placeholder="Nama group baru">
-                        <button class="btn btn-primary" id="createGroupBtn">+ Buat Group</button>
-                    </div>
+                <div class="create-group">
+                    <input type="text" id="newGroupName" class="input" placeholder="Nama group baru">
+                    <button class="btn-primary" id="createGroupBtn">+ Buat</button>
                 </div>
-                
-                <div class="group-list" id="groupList"></div>
-            </div>
-            
-            <!-- Data Preview Modal -->
+                <div class="group-grid" id="groupList"></div>
+            </section>
+
+            <!-- Preview Modal -->
             <div class="modal" id="previewModal">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h2 id="previewTitle">Preview Data</h2>
-                        <button class="modal-close" id="closeModal">&times;</button>
+                <div class="modal-box">
+                    <div class="modal-head">
+                        <h2 id="previewTitle">Data</h2>
+                        <button class="close-btn" id="closeModal">✕</button>
                     </div>
-                    <div class="modal-body">
-                        <div class="data-summary" id="dataSummary"></div>
-                        <div class="table-wrapper">
-                            <table class="data-table">
-                                <thead id="tableHead"></thead>
-                                <tbody id="tableBody"></tbody>
-                            </table>
-                        </div>
+                    <div class="modal-stats" id="dataSummary"></div>
+                    <div class="table-wrap">
+                        <table class="data-table">
+                            <thead id="tableHead"></thead>
+                            <tbody id="tableBody"></tbody>
+                        </table>
                     </div>
                 </div>
             </div>
         </main>
     </div>
-    
-    <!-- Loading Overlay -->
-    <div class="loading-overlay" id="loading">
-        <div class="spinner"></div>
-        <p>Memproses...</p>
-    </div>
 
+    <div class="loader" id="loading"><div class="spinner"></div></div>
     <script src="/static/app.js"></script>
 </body>
 </html>

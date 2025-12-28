@@ -127,6 +127,28 @@ def upload_file():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/read-link', methods=['POST'])
+def read_from_link():
+    """Baca Google Spreadsheet tanpa menyimpan (preview)"""
+    data = request.json
+    url = data.get('url', '')
+    
+    if not url:
+        return jsonify({'error': 'URL tidak boleh kosong'}), 400
+    
+    try:
+        df, sheet_id = read_google_sheet(url)
+        return jsonify({
+            'success': True,
+            'rows': len(df),
+            'columns': list(df.columns),
+            'data': df.head(100).to_dict('records'),
+            'suggested_name': f'GSheet_{sheet_id[:8]}'
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/import-link', methods=['POST'])
 def import_from_link():
     """Import dari Google Spreadsheet link"""
