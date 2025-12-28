@@ -43,6 +43,8 @@ def save_data_store(data):
 def read_google_sheet(url):
     """Baca Google Spreadsheet atau Excel file dari Google Drive"""
     import re
+    import tempfile
+    import os
     
     # Extract file ID dari berbagai format URL
     match = re.search(r'/d/([a-zA-Z0-9-_]+)', url)
@@ -58,48 +60,41 @@ def read_google_sheet(url):
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     }
     
-    session = requests.Session()
-    
     if is_excel_file:
-        # File Excel di Google Drive - download dengan confirm token
-        download_url = f'https://drive.google.com/uc?export=download&id={file_id}'
-        
-        response = session.get(download_url, headers=headers, timeout=60)
-        
-        # Handle virus scan warning untuk file besar
-        if 'confirm=' in response.text or 'download_warning' in str(response.cookies):
-            # Extract confirm token
+        # File Excel di Google Drive - gunakan gdown
+        try:
+            import gdown
+            
+            # Download ke temp file
+            temp_path = f'/tmp/{file_id}.xlsx'
+            gdown_url = f'https://drive.google.com/uc?id={file_id}'
+            
+            gdown.download(gdown_url, temp_path, quiet=True, fuzzy=True)
+            
+            if os.path.exists(temp_path):
+                df = pd.read_excel(temp_path, engine='openpyxl')
+                os.remove(temp_path)
+            else:
+                raise ValueError('Gagal download file')
+                
+        except ImportError:
+            # Fallback ke requests jika gdown tidak ada
+            session = requests.Session()
+            download_url = f'https://drive.google.com/uc?export=download&id={file_id}'
+            
+            response = session.get(download_url, headers=headers, timeout=60)
+            
+            # Handle confirm token
             for key, value in response.cookies.items():
                 if key.startswith('download_warning'):
                     download_url = f'https://drive.google.com/uc?export=download&confirm={value}&id={file_id}'
+                    response = session.get(download_url, headers=headers, timeout=60)
                     break
-            else:
-                # Coba extract dari HTML
-                import re as regex
-                token_match = regex.search(r'confirm=([0-9A-Za-z_-]+)', response.text)
-                if token_match:
-                    download_url = f'https://drive.google.com/uc?export=download&confirm={token_match.group(1)}&id={file_id}'
             
-            response = session.get(download_url, headers=headers, timeout=60)
-        
-        if response.status_code != 200:
-            raise ValueError('Gagal download file')
-        
-        # Cek apakah response adalah HTML (error page)
-        if b'<!DOCTYPE' in response.content[:100] or b'<html' in response.content[:100]:
-            raise ValueError('File tidak bisa diakses. Pastikan sharing "Anyone with the link"')
-        
-        content = BytesIO(response.content)
-        
-        # Coba baca sebagai Excel
-        try:
-            df = pd.read_excel(content, engine='openpyxl')
-        except:
-            content.seek(0)
-            try:
-                df = pd.read_csv(content)
-            except:
-                raise ValueError('Format file tidak didukung')
+            if b'<!DOCTYPE' in response.content[:100]:
+                raise ValueError('File tidak bisa diakses')
+            
+            df = pd.read_excel(BytesIO(response.content), engine='openpyxl')
     else:
         # Google Sheets native - export as CSV
         gid = '0'
@@ -109,22 +104,15 @@ def read_google_sheet(url):
         
         export_url = f'https://docs.google.com/spreadsheets/d/{file_id}/export?format=csv&gid={gid}'
         
-        response = session.get(export_url, headers=headers, timeout=60)
+        response = requests.get(export_url, headers=headers, timeout=60)
         
-        if response.status_code != 200:
-            raise ValueError('Gagal mengakses spreadsheet')
+        if response.status_code != 200 or 'text/html' in response.headers.get('content-type', ''):
+            raise ValueError('Spreadsheet tidak bisa diakses')
         
-        content_type = response.headers.get('content-type', '')
-        if 'text/html' in content_type:
-            raise ValueError('Spreadsheet tidak bisa diakses. Pastikan sharing "Anyone with the link"')
-        
-        try:
-            df = pd.read_csv(BytesIO(response.content))
-        except Exception as e:
-            raise ValueError(f'Gagal membaca data: {str(e)}')
+        df = pd.read_csv(BytesIO(response.content))
     
     if df.empty:
-        raise ValueError('File kosong atau tidak bisa dibaca')
+        raise ValueError('File kosong')
     
     return df, file_id
 
