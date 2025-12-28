@@ -58,13 +58,36 @@ def read_google_sheet(url):
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     }
     
+    session = requests.Session()
+    
     if is_excel_file:
-        # File Excel di Google Drive - download langsung
+        # File Excel di Google Drive - download dengan confirm token
         download_url = f'https://drive.google.com/uc?export=download&id={file_id}'
         
-        response = requests.get(download_url, headers=headers, timeout=30)
+        response = session.get(download_url, headers=headers, timeout=60)
+        
+        # Handle virus scan warning untuk file besar
+        if 'confirm=' in response.text or 'download_warning' in str(response.cookies):
+            # Extract confirm token
+            for key, value in response.cookies.items():
+                if key.startswith('download_warning'):
+                    download_url = f'https://drive.google.com/uc?export=download&confirm={value}&id={file_id}'
+                    break
+            else:
+                # Coba extract dari HTML
+                import re as regex
+                token_match = regex.search(r'confirm=([0-9A-Za-z_-]+)', response.text)
+                if token_match:
+                    download_url = f'https://drive.google.com/uc?export=download&confirm={token_match.group(1)}&id={file_id}'
+            
+            response = session.get(download_url, headers=headers, timeout=60)
+        
         if response.status_code != 200:
-            raise ValueError('Gagal download file. Pastikan link bisa diakses publik.')
+            raise ValueError('Gagal download file')
+        
+        # Cek apakah response adalah HTML (error page)
+        if b'<!DOCTYPE' in response.content[:100] or b'<html' in response.content[:100]:
+            raise ValueError('File tidak bisa diakses. Pastikan sharing "Anyone with the link"')
         
         content = BytesIO(response.content)
         
@@ -86,7 +109,7 @@ def read_google_sheet(url):
         
         export_url = f'https://docs.google.com/spreadsheets/d/{file_id}/export?format=csv&gid={gid}'
         
-        response = requests.get(export_url, headers=headers, timeout=30)
+        response = session.get(export_url, headers=headers, timeout=60)
         
         if response.status_code != 200:
             raise ValueError('Gagal mengakses spreadsheet')
