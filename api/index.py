@@ -41,73 +41,38 @@ def save_data_store(data):
 
 
 def read_google_sheet(url):
-    """Baca Google Spreadsheet atau file dari Google Drive"""
+    """Baca Google Spreadsheet via Google Apps Script"""
     import re
     
-    # Extract file ID
+    # Google Apps Script URL
+    APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycby52FcMMV9gWC4vNAuSz-G9WEjJHA1JUZj1O65t2faimyhk00ui4GQSaXI1IiAJx9Xz/exec"
+    
+    # Extract file ID untuk nama
     match = re.search(r'/d/([a-zA-Z0-9-_]+)', url)
-    if not match:
-        raise ValueError('URL tidak valid')
+    file_id = match.group(1) if match else 'unknown'
     
-    file_id = match.group(1)
+    # Panggil Apps Script
+    response = requests.get(
+        APPS_SCRIPT_URL,
+        params={'url': url},
+        timeout=60
+    )
     
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-    }
+    if response.status_code != 200:
+        raise ValueError(f'Gagal menghubungi Google Apps Script (status: {response.status_code})')
     
-    df = None
+    data = response.json()
     
-    # Metode 1: Export sebagai CSV
-    export_url = f'https://docs.google.com/spreadsheets/d/{file_id}/export?format=csv'
+    if 'error' in data:
+        raise ValueError(data['error'])
     
-    # Cek apakah ada gid di URL
-    gid_match = re.search(r'gid=(\d+)', url)
-    if gid_match:
-        export_url += f'&gid={gid_match.group(1)}'
-    
-    try:
-        response = requests.get(export_url, headers=headers, timeout=30)
-        
-        if response.status_code == 200:
-            content_type = response.headers.get('content-type', '')
-            
-            # Pastikan bukan HTML error page
-            if 'text/csv' in content_type or 'application/csv' in content_type:
-                df = pd.read_csv(BytesIO(response.content))
-            elif 'text/html' not in content_type and len(response.content) > 0:
-                # Coba parse sebagai CSV anyway
-                try:
-                    df = pd.read_csv(BytesIO(response.content))
-                except:
-                    pass
-    except Exception as e:
-        pass
-    
-    # Metode 2: Export sebagai XLSX jika CSV gagal
-    if df is None or df.empty:
-        try:
-            export_url = f'https://docs.google.com/spreadsheets/d/{file_id}/export?format=xlsx'
-            response = requests.get(export_url, headers=headers, timeout=30)
-            
-            if response.status_code == 200 and len(response.content) > 500:
-                df = pd.read_excel(BytesIO(response.content), engine='openpyxl')
-        except:
-            pass
-    
-    if df is None:
-        raise ValueError('Tidak bisa membaca file. Pastikan link sudah di-share sebagai "Anyone with the link"')
-    
-    # Bersihkan data - hapus baris/kolom yang semuanya kosong
-    df = df.dropna(how='all')  # Hapus baris kosong
-    df = df.dropna(axis=1, how='all')  # Hapus kolom kosong
-    
-    # Reset index
-    df = df.reset_index(drop=True)
+    # Convert ke DataFrame
+    df = pd.DataFrame(data['data'])
     
     if df.empty:
         raise ValueError('File kosong atau tidak ada data')
     
-    return df, file_id
+    return df, file_id, data.get('name', f'Sheet_{file_id[:8]}')
 
 
 @app.route('/')
@@ -178,13 +143,13 @@ def read_from_link():
         return jsonify({'error': 'URL tidak boleh kosong'}), 400
     
     try:
-        df, sheet_id = read_google_sheet(url)
+        df, file_id, sheet_name = read_google_sheet(url)
         return jsonify({
             'success': True,
             'rows': len(df),
             'columns': list(df.columns),
             'data': df.head(100).to_dict('records'),
-            'suggested_name': f'GSheet_{sheet_id[:8]}'
+            'suggested_name': sheet_name
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -202,13 +167,13 @@ def import_from_link():
         return jsonify({'error': 'URL tidak boleh kosong'}), 400
     
     try:
-        df, sheet_id = read_google_sheet(url)
-        file_id = uuid.uuid4().hex[:8]
-        filename = custom_name or f'GSheet_{sheet_id[:8]}'
+        df, file_id, sheet_name = read_google_sheet(url)
+        new_file_id = uuid.uuid4().hex[:8]
+        filename = custom_name or sheet_name
         
         store = load_data_store()
         file_data = {
-            'id': file_id,
+            'id': new_file_id,
             'name': filename,
             'source': 'google_sheet',
             'source_url': url,
@@ -224,7 +189,7 @@ def import_from_link():
         return jsonify({
             'success': True,
             'file': {
-                'id': file_id,
+                'id': new_file_id,
                 'name': filename,
                 'rows': len(df),
                 'columns': list(df.columns)
