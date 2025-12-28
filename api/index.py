@@ -55,87 +55,59 @@ def read_google_sheet(url):
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     }
     
-    # Coba beberapa metode
     df = None
-    errors = []
     
-    # Metode 1: Export sebagai CSV (untuk Google Sheets native)
-    try:
-        gid = '0'
-        gid_match = re.search(r'gid=(\d+)', url)
-        if gid_match:
-            gid = gid_match.group(1)
-        
-        export_url = f'https://docs.google.com/spreadsheets/d/{file_id}/export?format=csv&gid={gid}'
-        response = requests.get(export_url, headers=headers, timeout=30)
-        
-        if response.status_code == 200 and 'text/html' not in response.headers.get('content-type', ''):
-            df = pd.read_csv(BytesIO(response.content))
-            if not df.empty:
-                return df, file_id
-    except Exception as e:
-        errors.append(f'CSV export: {e}')
+    # Metode 1: Export sebagai CSV
+    export_url = f'https://docs.google.com/spreadsheets/d/{file_id}/export?format=csv'
     
-    # Metode 2: Export sebagai XLSX lalu baca
-    try:
-        export_url = f'https://docs.google.com/spreadsheets/d/{file_id}/export?format=xlsx'
-        response = requests.get(export_url, headers=headers, timeout=30)
-        
-        if response.status_code == 200 and len(response.content) > 100:
-            content_type = response.headers.get('content-type', '')
-            if 'spreadsheet' in content_type or 'octet-stream' in content_type:
-                df = pd.read_excel(BytesIO(response.content), engine='openpyxl')
-                if not df.empty:
-                    return df, file_id
-    except Exception as e:
-        errors.append(f'XLSX export: {e}')
+    # Cek apakah ada gid di URL
+    gid_match = re.search(r'gid=(\d+)', url)
+    if gid_match:
+        export_url += f'&gid={gid_match.group(1)}'
     
-    # Metode 3: Google Drive direct download
     try:
-        # Download URL untuk file di Drive
-        download_url = f'https://drive.google.com/uc?export=download&id={file_id}'
-        
-        session = requests.Session()
-        response = session.get(download_url, headers=headers, timeout=30, stream=True)
-        
-        # Handle large file warning
-        for key, value in response.cookies.items():
-            if 'download_warning' in key:
-                download_url = f'https://drive.google.com/uc?export=download&confirm={value}&id={file_id}'
-                response = session.get(download_url, headers=headers, timeout=30)
-                break
-        
-        content = response.content
-        
-        # Skip jika HTML
-        if content[:15].startswith(b'<!DOCTYPE') or content[:5].startswith(b'<html'):
-            raise ValueError('Got HTML instead of file')
-        
-        # Coba baca sebagai Excel
-        try:
-            df = pd.read_excel(BytesIO(content), engine='openpyxl')
-        except:
-            df = pd.read_csv(BytesIO(content))
-        
-        if not df.empty:
-            return df, file_id
-            
-    except Exception as e:
-        errors.append(f'Drive download: {e}')
-    
-    # Metode 4: Viewer export (untuk file Excel di Drive yang dibuka via Sheets)
-    try:
-        export_url = f'https://docs.google.com/spreadsheets/d/{file_id}/gviz/tq?tqx=out:csv'
         response = requests.get(export_url, headers=headers, timeout=30)
         
         if response.status_code == 200:
-            df = pd.read_csv(BytesIO(response.content))
-            if not df.empty:
-                return df, file_id
+            content_type = response.headers.get('content-type', '')
+            
+            # Pastikan bukan HTML error page
+            if 'text/csv' in content_type or 'application/csv' in content_type:
+                df = pd.read_csv(BytesIO(response.content))
+            elif 'text/html' not in content_type and len(response.content) > 0:
+                # Coba parse sebagai CSV anyway
+                try:
+                    df = pd.read_csv(BytesIO(response.content))
+                except:
+                    pass
     except Exception as e:
-        errors.append(f'GViz export: {e}')
+        pass
     
-    raise ValueError(f'Tidak bisa membaca file. Errors: {"; ".join(errors)}')
+    # Metode 2: Export sebagai XLSX jika CSV gagal
+    if df is None or df.empty:
+        try:
+            export_url = f'https://docs.google.com/spreadsheets/d/{file_id}/export?format=xlsx'
+            response = requests.get(export_url, headers=headers, timeout=30)
+            
+            if response.status_code == 200 and len(response.content) > 500:
+                df = pd.read_excel(BytesIO(response.content), engine='openpyxl')
+        except:
+            pass
+    
+    if df is None:
+        raise ValueError('Tidak bisa membaca file. Pastikan link sudah di-share sebagai "Anyone with the link"')
+    
+    # Bersihkan data - hapus baris/kolom yang semuanya kosong
+    df = df.dropna(how='all')  # Hapus baris kosong
+    df = df.dropna(axis=1, how='all')  # Hapus kolom kosong
+    
+    # Reset index
+    df = df.reset_index(drop=True)
+    
+    if df.empty:
+        raise ValueError('File kosong atau tidak ada data')
+    
+    return df, file_id
 
 
 @app.route('/')
