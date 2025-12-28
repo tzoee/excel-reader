@@ -41,32 +41,69 @@ def save_data_store(data):
 
 
 def read_google_sheet(url):
-    """Baca Google Spreadsheet dari link share"""
-    # Convert share link ke export CSV
-    if '/edit' in url:
-        url = url.split('/edit')[0]
-    if '/view' in url:
-        url = url.split('/view')[0]
+    """Baca Google Spreadsheet atau Excel file dari Google Drive"""
+    import re
     
-    # Extract sheet ID
-    if '/d/' in url:
-        sheet_id = url.split('/d/')[1].split('/')[0]
+    # Extract file ID dari berbagai format URL
+    match = re.search(r'/d/([a-zA-Z0-9-_]+)', url)
+    if not match:
+        raise ValueError('URL tidak valid')
+    
+    file_id = match.group(1)
+    
+    # Cek apakah ini file Excel di Drive (ada rtpof=true) atau Google Sheets native
+    is_excel_file = 'rtpof=true' in url or 'export=download' in url
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    }
+    
+    if is_excel_file:
+        # File Excel di Google Drive - download langsung
+        download_url = f'https://drive.google.com/uc?export=download&id={file_id}'
+        
+        response = requests.get(download_url, headers=headers, timeout=30)
+        if response.status_code != 200:
+            raise ValueError('Gagal download file. Pastikan link bisa diakses publik.')
+        
+        content = BytesIO(response.content)
+        
+        # Coba baca sebagai Excel
+        try:
+            df = pd.read_excel(content, engine='openpyxl')
+        except:
+            content.seek(0)
+            try:
+                df = pd.read_csv(content)
+            except:
+                raise ValueError('Format file tidak didukung')
     else:
-        raise ValueError('URL Google Spreadsheet tidak valid')
+        # Google Sheets native - export as CSV
+        gid = '0'
+        gid_match = re.search(r'gid=(\d+)', url)
+        if gid_match:
+            gid = gid_match.group(1)
+        
+        export_url = f'https://docs.google.com/spreadsheets/d/{file_id}/export?format=csv&gid={gid}'
+        
+        response = requests.get(export_url, headers=headers, timeout=30)
+        
+        if response.status_code != 200:
+            raise ValueError('Gagal mengakses spreadsheet')
+        
+        content_type = response.headers.get('content-type', '')
+        if 'text/html' in content_type:
+            raise ValueError('Spreadsheet tidak bisa diakses. Pastikan sharing "Anyone with the link"')
+        
+        try:
+            df = pd.read_csv(BytesIO(response.content))
+        except Exception as e:
+            raise ValueError(f'Gagal membaca data: {str(e)}')
     
-    # Cek apakah ada gid (sheet tertentu)
-    gid = '0'
-    if 'gid=' in url:
-        gid = url.split('gid=')[1].split('&')[0]
+    if df.empty:
+        raise ValueError('File kosong atau tidak bisa dibaca')
     
-    export_url = f'https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}'
-    
-    response = requests.get(export_url)
-    if response.status_code != 200:
-        raise ValueError('Gagal mengakses spreadsheet. Pastikan link bisa diakses publik.')
-    
-    df = pd.read_csv(BytesIO(response.content))
-    return df, sheet_id
+    return df, file_id
 
 
 @app.route('/')
